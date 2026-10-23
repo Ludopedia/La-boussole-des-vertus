@@ -2,5 +2,7 @@
   "name": "La Boussole des Vertus - Atelier Philosophique",
   "description": "Atelier interactif d'introspection et de feedback à 360° entre amis sur les quatre vertus cardinales : Prudence, Tempérance, Force et Justice.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
