@@ -4,8 +4,8 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { INITIAL_DEMO_SESSION } from './src/data/virtuesData';
-import type { WorkshopSession } from './src/types/workshop';
+import { DEFAULT_EMPTY_SESSION } from './src/data/virtuesData';
+import type { WorkshopSession, Participant } from './src/types/workshop';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +17,7 @@ const port = parseInt(process.env.PORT || '3000', 10);
 app.use(express.json());
 
 // In-memory server-authoritative workshop session
-let currentSession: WorkshopSession = JSON.parse(JSON.stringify(INITIAL_DEMO_SESSION));
+let currentSession: WorkshopSession = JSON.parse(JSON.stringify(DEFAULT_EMPTY_SESSION));
 
 // Connected clients tracking
 interface ClientInfo {
@@ -80,7 +80,6 @@ wss.on('connection', (ws) => {
 
       if (data.type === 'sync_state' && data.session) {
         currentSession = data.session;
-        // Broadcast to all other connected clients
         broadcast(
           {
             type: 'sync_state',
@@ -89,6 +88,34 @@ wss.on('connection', (ws) => {
           },
           ws
         );
+      } else if (data.type === 'join_participant' && data.participant) {
+        const p: Participant = data.participant;
+        const exists = currentSession.participants.some((item) => item.id === p.id);
+        if (!exists) {
+          currentSession.participants.push(p);
+        } else {
+          currentSession.participants = currentSession.participants.map((item) =>
+            item.id === p.id ? { ...item, name: p.name, avatarColor: p.avatarColor } : item
+          );
+        }
+
+        const info = clients.get(ws);
+        if (info) {
+          info.participantId = p.id;
+          clients.set(ws, info);
+        }
+
+        broadcast({
+          type: 'sync_state',
+          session: currentSession,
+          senderId: clientId,
+        });
+
+        broadcast({
+          type: 'presence',
+          onlineParticipants: getOnlineParticipantIds(),
+          connectedClientsCount: clients.size,
+        });
       } else if (data.type === 'identify') {
         const info = clients.get(ws);
         if (info) {
@@ -138,6 +165,15 @@ app.post('/api/session', (req, res) => {
   } else {
     res.status(400).json({ error: 'Missing session in request body' });
   }
+});
+
+app.post('/api/reset', (_req, res) => {
+  currentSession = JSON.parse(JSON.stringify(DEFAULT_EMPTY_SESSION));
+  broadcast({
+    type: 'sync_state',
+    session: currentSession,
+  });
+  res.json({ success: true, session: currentSession });
 });
 
 // Detect Local Network IP addresses for Wi-Fi sharing

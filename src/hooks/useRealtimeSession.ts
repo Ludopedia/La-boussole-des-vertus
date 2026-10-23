@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { WorkshopSession } from '../types/workshop';
-import { INITIAL_DEMO_SESSION } from '../data/virtuesData';
+import { WorkshopSession, Participant, VirtueKey, SelfAnswers, createDefaultSelfScores } from '../types/workshop';
+import { DEFAULT_EMPTY_SESSION } from '../data/virtuesData';
 
 export interface NetworkInfo {
   localIps: string[];
@@ -8,20 +8,22 @@ export interface NetworkInfo {
   currentHost?: string;
 }
 
+export const AVATAR_PALETTE = ['#B45309', '#0F766E', '#B91C1C', '#4338CA', '#78350F', '#047857', '#9333EA', '#D97706'];
+
 export function useRealtimeSession() {
   const [session, setSession] = useState<WorkshopSession>(() => {
     try {
-      const saved = localStorage.getItem('boussole_vertus_session_v1');
+      const saved = localStorage.getItem('boussole_vertus_session_v2');
       if (saved) return JSON.parse(saved);
     } catch {
       // Ignore
     }
-    return INITIAL_DEMO_SESSION;
+    return DEFAULT_EMPTY_SESSION;
   });
 
   const [myParticipantId, setMyParticipantId] = useState<string>(() => {
     try {
-      return localStorage.getItem('boussole_my_participant_id') || '';
+      return localStorage.getItem('boussole_my_participant_id_v2') || '';
     } catch {
       return '';
     }
@@ -33,7 +35,6 @@ export function useRealtimeSession() {
   const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const isRemoteUpdateRef = useRef<boolean>(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch network info for Wi-Fi instructions
@@ -46,27 +47,23 @@ export function useRealtimeSession() {
       .catch(() => {});
   }, []);
 
-  // Set my identity and remember in localStorage
-  const chooseMyParticipantId = useCallback(
-    (id: string) => {
-      setMyParticipantId(id);
-      try {
-        localStorage.setItem('boussole_my_participant_id', id);
-      } catch {
-        // Ignore
-      }
-
-      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-        socketRef.current.send(
-          JSON.stringify({
-            type: 'identify',
-            participantId: id,
-          })
-        );
-      }
-    },
-    []
-  );
+  // Fetch initial session from REST API on mount
+  useEffect(() => {
+    fetch('/api/session')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.session) {
+          setSession(data.session);
+          if (Array.isArray(data.onlineParticipants)) {
+            setOnlineParticipants(data.onlineParticipants);
+          }
+          if (typeof data.connectedClientsCount === 'number') {
+            setConnectedClientsCount(data.connectedClientsCount);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Initialize and maintain WebSocket connection
   const connectWebSocket = useCallback(() => {
@@ -83,7 +80,6 @@ export function useRealtimeSession() {
 
       ws.onopen = () => {
         setIsConnected(true);
-        // Identify ourselves if we have an ID selected
         if (myParticipantId) {
           ws.send(
             JSON.stringify({
@@ -98,9 +94,8 @@ export function useRealtimeSession() {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === 'init') {
+          if (data.type === 'init' || data.type === 'sync_state') {
             if (data.session) {
-              isRemoteUpdateRef.current = true;
               setSession(data.session);
             }
             if (Array.isArray(data.onlineParticipants)) {
@@ -109,9 +104,6 @@ export function useRealtimeSession() {
             if (typeof data.connectedClientsCount === 'number') {
               setConnectedClientsCount(data.connectedClientsCount);
             }
-          } else if (data.type === 'sync_state' && data.session) {
-            isRemoteUpdateRef.current = true;
-            setSession(data.session);
           } else if (data.type === 'presence') {
             if (Array.isArray(data.onlineParticipants)) {
               setOnlineParticipants(data.onlineParticipants);
@@ -121,14 +113,13 @@ export function useRealtimeSession() {
             }
           }
         } catch (e) {
-          console.error('Error parsing incoming WS message:', e);
+          console.error('Error parsing WS message:', e);
         }
       };
 
       ws.onclose = () => {
         setIsConnected(false);
         socketRef.current = null;
-        // Schedule auto-reconnect
         reconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000);
       };
 
@@ -136,7 +127,7 @@ export function useRealtimeSession() {
         ws.close();
       };
     } catch {
-      // WS unavailable, fallback to REST
+      // WS fallback to REST
     }
   }, [myParticipantId]);
 
@@ -151,20 +142,97 @@ export function useRealtimeSession() {
     };
   }, [connectWebSocket]);
 
-  // Persist session to local storage whenever it changes
+  // Persist session to local storage
   useEffect(() => {
     try {
-      localStorage.setItem('boussole_vertus_session_v1', JSON.stringify(session));
+      localStorage.setItem('boussole_vertus_session_v2', JSON.stringify(session));
     } catch {
       // Ignore
     }
   }, [session]);
 
-  // Broadcast local changes to server & peers
+  // Join session as a participant (created on the fly or reclaimed)
+  const joinSession = useCallback(
+    (name: string, chosenColor?: string) => {
+      const trimmedName = name.trim();
+      if (!trimmedName) return;
+
+      // Check if this participant already exists by name
+      const existing = session.participants.find(
+        (p) => p.name.toLowerCase() === trimmedName.toLowerCase()
+      );
+
+      let participant: Participant;
+
+      if (existing) {
+        participant = existing;
+      } else {
+        const color =
+          chosenColor ||
+          AVATAR_PALETTE[session.participants.length % AVATAR_PALETTE.length];
+        participant = {
+          id: `p-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: trimmedName,
+          avatarColor: color,
+          selfScores: createDefaultSelfScores(),
+          peerReviews: {},
+        };
+      }
+
+      setMyParticipantId(participant.id);
+      try {
+        localStorage.setItem('boussole_my_participant_id_v2', participant.id);
+      } catch {
+        // Ignore
+      }
+
+      // Send to server
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(
+          JSON.stringify({
+            type: 'join_participant',
+            participant,
+          })
+        );
+      } else {
+        // Fallback REST
+        const updatedParticipants = existing
+          ? session.participants
+          : [...session.participants, participant];
+        const newSession = { ...session, participants: updatedParticipants };
+        setSession(newSession);
+        fetch('/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: newSession }),
+        }).catch(() => {});
+      }
+    },
+    [session]
+  );
+
+  // Switch / reclaim an existing participant identity
+  const selectExistingParticipant = useCallback((id: string) => {
+    setMyParticipantId(id);
+    try {
+      localStorage.setItem('boussole_my_participant_id_v2', id);
+    } catch {
+      // Ignore
+    }
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'identify',
+          participantId: id,
+        })
+      );
+    }
+  }, []);
+
+  // Update whole session and broadcast
   const updateSession = useCallback((newSession: WorkshopSession) => {
     setSession(newSession);
 
-    // If socket is open, send sync event
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -173,7 +241,6 @@ export function useRealtimeSession() {
         })
       );
     } else {
-      // REST fallback
       fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,11 +249,116 @@ export function useRealtimeSession() {
     }
   }, []);
 
+  // Granular update: update my self scores
+  const updateMySelfScores = useCallback(
+    (virtueKey: VirtueKey, questionKey: 'q1' | 'q2' | 'q3' | 'q4', value: number) => {
+      if (!myParticipantId) return;
+
+      const updatedParticipants = session.participants.map((p) => {
+        if (p.id !== myParticipantId) return p;
+        const currentVirtueScores = p.selfScores[virtueKey] || { q1: 3, q2: 3, q3: 3, q4: 3 };
+        return {
+          ...p,
+          selfScores: {
+            ...p.selfScores,
+            [virtueKey]: {
+              ...currentVirtueScores,
+              [questionKey]: value,
+            },
+          },
+        };
+      });
+
+      updateSession({
+        ...session,
+        participants: updatedParticipants,
+      });
+    },
+    [myParticipantId, session, updateSession]
+  );
+
+  // Granular update: update my peer review of a friend
+  const updateMyPeerReview = useCallback(
+    (targetParticipantId: string, scores: Record<VirtueKey, number>, anecdote?: string) => {
+      if (!myParticipantId) return;
+
+      const updatedParticipants = session.participants.map((p) => {
+        if (p.id !== myParticipantId) return p;
+        return {
+          ...p,
+          peerReviews: {
+            ...p.peerReviews,
+            [targetParticipantId]: {
+              scores,
+              anecdote: anecdote !== undefined ? anecdote : p.peerReviews[targetParticipantId]?.anecdote || '',
+            },
+          },
+        };
+      });
+
+      updateSession({
+        ...session,
+        participants: updatedParticipants,
+      });
+    },
+    [myParticipantId, session, updateSession]
+  );
+
+  // Granular update: update my commitment
+  const updateMyCommitment = useCallback(
+    (virtue: VirtueKey, action: string) => {
+      if (!myParticipantId) return;
+
+      const updatedParticipants = session.participants.map((p) => {
+        if (p.id !== myParticipantId) return p;
+        return {
+          ...p,
+          commitment: {
+            virtue,
+            action,
+          },
+        };
+      });
+
+      updateSession({
+        ...session,
+        participants: updatedParticipants,
+      });
+    },
+    [myParticipantId, session, updateSession]
+  );
+
+  // Reset entire session on server
+  const resetSession = useCallback(() => {
+    fetch('/api/reset', { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.session) {
+          setSession(data.session);
+          setMyParticipantId('');
+          try {
+            localStorage.removeItem('boussole_my_participant_id_v2');
+          } catch {
+            // Ignore
+          }
+        }
+      })
+      .catch(() => {
+        setSession(DEFAULT_EMPTY_SESSION);
+      });
+  }, []);
+
   return {
     session,
-    updateSession,
     myParticipantId,
-    chooseMyParticipantId,
+    myParticipant: session.participants.find((p) => p.id === myParticipantId),
+    joinSession,
+    selectExistingParticipant,
+    updateSession,
+    updateMySelfScores,
+    updateMyPeerReview,
+    updateMyCommitment,
+    resetSession,
     isConnected,
     onlineParticipants,
     connectedClientsCount,

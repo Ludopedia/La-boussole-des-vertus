@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { WorkshopSession, Participant } from '../types/workshop';
-import { INITIAL_DEMO_SESSION, DEFAULT_BLANK_SESSION } from '../data/virtuesData';
-import { UserPlus, Trash2, ArrowRight, BookOpen, Heart, Users, Sparkles, Wifi } from 'lucide-react';
+import { WorkshopSession, Participant, createDefaultSelfScores } from '../types/workshop';
+import { AVATAR_PALETTE } from '../hooks/useRealtimeSession';
+import { UserPlus, Trash2, ArrowRight, Heart, Users, Wifi } from 'lucide-react';
 
 interface StepSetupProps {
   session: WorkshopSession;
@@ -11,8 +11,6 @@ interface StepSetupProps {
   connectedClientsCount?: number;
 }
 
-const AVATAR_PALETTE = ['#B45309', '#0F766E', '#B91C1C', '#4338CA', '#78350F', '#047857', '#9333EA'];
-
 export const StepSetup: React.FC<StepSetupProps> = ({
   session,
   onUpdateSession,
@@ -21,21 +19,15 @@ export const StepSetup: React.FC<StepSetupProps> = ({
   connectedClientsCount = 1,
 }) => {
   const [newFriendName, setNewFriendName] = useState('');
-  const [goldenRuleAccepted, setGoldenRuleAccepted] = useState(true);
 
   const handleAddParticipant = () => {
     if (!newFriendName.trim()) return;
     const colorIndex = session.participants.length % AVATAR_PALETTE.length;
     const newParticipant: Participant = {
-      id: `part-${Date.now()}`,
+      id: `part-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: newFriendName.trim(),
       avatarColor: AVATAR_PALETTE[colorIndex],
-      selfScores: {
-        prudence: { q1: 4, q2: 4, q3: 3, q4: 4 },
-        temperance: { q1: 3, q2: 3, q3: 3, q4: 3 },
-        fortitude: { q1: 4, q2: 3, q3: 4, q4: 3 },
-        justice: { q1: 4, q2: 4, q3: 4, q4: 4 },
-      },
+      selfScores: createDefaultSelfScores(),
       peerReviews: {},
     };
     onUpdateSession({
@@ -46,15 +38,14 @@ export const StepSetup: React.FC<StepSetupProps> = ({
   };
 
   const handleRemoveParticipant = (id: string) => {
-    if (session.participants.length <= 2) {
-      alert("L'atelier requiert au minimum 2 participants pour le regard croisé.");
+    if (session.participants.length <= 1) {
+      alert("Il doit rester au moins 1 participant.");
       return;
     }
     const updated = session.participants.filter((p) => p.id !== id);
     onUpdateSession({
       ...session,
       participants: updated,
-      activeParticipantId: updated[0].id,
     });
   };
 
@@ -63,12 +54,11 @@ export const StepSetup: React.FC<StepSetupProps> = ({
     onUpdateSession({ ...session, participants: updated });
   };
 
-  const handleLoadDemo = () => {
-    onUpdateSession(JSON.parse(JSON.stringify(INITIAL_DEMO_SESSION)));
-  };
-
-  const handleResetBlank = () => {
-    onUpdateSession(JSON.parse(JSON.stringify(DEFAULT_BLANK_SESSION)));
+  const handleToggleGoldenRule = (checked: boolean) => {
+    onUpdateSession({
+      ...session,
+      goldenRuleAccepted: checked,
+    });
   };
 
   return (
@@ -106,8 +96,8 @@ export const StepSetup: React.FC<StepSetupProps> = ({
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
-              checked={goldenRuleAccepted}
-              onChange={(e) => setGoldenRuleAccepted(e.target.checked)}
+              checked={Boolean(session.goldenRuleAccepted)}
+              onChange={(e) => handleToggleGoldenRule(e.target.checked)}
               className="w-4 h-4 rounded text-amber-700 focus:ring-amber-500 border-stone-300"
             />
             <span className="font-medium text-stone-800">
@@ -119,7 +109,7 @@ export const StepSetup: React.FC<StepSetupProps> = ({
         </div>
       </div>
 
-      {/* Wi-Fi & Multi-device connection banner */}
+      {/* Wi-Fi Invitation banner */}
       <div className="bg-[#FAF8F5] border border-stone-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-lg bg-white border border-stone-200 text-amber-800 shrink-0">
@@ -130,7 +120,7 @@ export const StepSetup: React.FC<StepSetupProps> = ({
               Participer à plusieurs sur le même Wi-Fi
             </h3>
             <p className="text-xs text-stone-500 font-sans mt-0.5">
-              Chaque ami peut ouvrir l'atelier sur son propre ordinateur ou téléphone. Vos réponses et notations sont synchronisées en direct.
+              Chaque ami rejoint l'atelier depuis son propre ordinateur ou smartphone. Vos réponses et notations se synchronisent en direct.
             </p>
           </div>
         </div>
@@ -155,25 +145,8 @@ export const StepSetup: React.FC<StepSetupProps> = ({
               Le Cercle des Participants ({session.participants.length})
             </h3>
             <p className="text-xs text-stone-500 mt-0.5">
-              Inscrivez les personnes présentes à l'atelier (2 à 8 amis).
+              Les participants inscrits dans cette session.
             </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleLoadDemo}
-              className="px-3 py-1.5 text-xs font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg transition-colors flex items-center gap-1.5"
-              title="Charger un exemple complet de débriefing"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-              Exemple pré-rempli
-            </button>
-            <button
-              onClick={handleResetBlank}
-              className="px-3 py-1.5 text-xs font-medium text-stone-500 hover:text-stone-800 rounded-lg transition-colors"
-            >
-              Réinitialiser
-            </button>
           </div>
         </div>
 
@@ -200,7 +173,7 @@ export const StepSetup: React.FC<StepSetupProps> = ({
                 />
               </div>
 
-              {session.participants.length > 2 && (
+              {session.participants.length > 1 && (
                 <button
                   onClick={() => handleRemoveParticipant(participant.id)}
                   className="text-stone-400 hover:text-red-700 p-1 transition-colors"
@@ -221,7 +194,7 @@ export const StepSetup: React.FC<StepSetupProps> = ({
             value={newFriendName}
             onChange={(e) => setNewFriendName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddParticipant()}
-            placeholder="Ajouter un ami (ex: Émilie, David...)"
+            placeholder="Inscrire un autre ami (ex: Sophie, Thomas...)"
             className="flex-1 px-4 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-hidden focus:border-stone-800 text-stone-900 placeholder:text-stone-400"
           />
           <button
@@ -235,16 +208,15 @@ export const StepSetup: React.FC<StepSetupProps> = ({
         </div>
       </div>
 
-      {/* Flow overview & Next step */}
+      {/* Flow overview & Next step (Local to this user) */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-stone-200">
         <div className="text-xs text-stone-500 font-sans">
-          Prochaine étape : Lecture commune du texte de référence et des 4 vertus cardinales.
+          Chaque participant progresse à son rythme. Vous pouvez ouvrir Le Codex à tout moment.
         </div>
 
         <button
           onClick={onNextStep}
-          disabled={!goldenRuleAccepted || session.participants.length < 2}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-stone-900 text-white font-medium text-sm rounded-lg hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-xs"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-stone-900 text-white font-medium text-sm rounded-lg hover:bg-stone-800 transition-colors shadow-xs"
         >
           <span>Ouvrir le Codex des Vertus (Étape 1)</span>
           <ArrowRight className="w-4 h-4" />

@@ -40,11 +40,13 @@ export interface Participant {
   name: string;
   avatarColor: string;
   selfScores: Record<VirtueKey, SelfAnswers>;
-  peerReviews: Record<string, {
-    // key is target participantId
-    scores: Record<VirtueKey, number>; // 0 to 20
-    anecdote?: string;
-  }>;
+  peerReviews: Record<
+    string,
+    {
+      scores: Record<VirtueKey, number>; // 0 to 20
+      anecdote?: string;
+    }
+  >;
   commitment?: {
     virtue: VirtueKey;
     action: string;
@@ -55,7 +57,13 @@ export interface WorkshopSession {
   id: string;
   title: string;
   date: string;
-  currentStep: number; // 0: Setup & Rule, 1: Foundation Text, 2: Self-Eval, 3: Peer 360, 4: Debriefing & Compass
-  activeParticipantId: string;
+  goldenRuleAccepted?: boolean;
   participants: Participant[];
 }
+
+export const createDefaultSelfScores = (): Record<VirtueKey, SelfAnswers> => ({
+  prudence: { q1: 3, q2: 3, q3: 3, q4: 3 },
+  temperance: { q1: 3, q2: 3, q3: 3, q4: 3 },
+  fortitude: { q1: 3, q2: 3, q3: 3, q4: 3 },
+  justice: { q1: 3, q2: 3, q3: 3, q4: 3 },
+});

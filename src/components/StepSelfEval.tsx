@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { WorkshopSession, VirtueKey, SelfAnswers } from '../types/workshop';
+import { WorkshopSession, Participant, VirtueKey, SelfAnswers } from '../types/workshop';
 import { VIRTUES_DATA } from '../data/virtuesData';
-import { ArrowRight, ArrowLeft, Check, HelpCircle } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Check, UserCheck, Users } from 'lucide-react';
 
 interface StepSelfEvalProps {
   session: WorkshopSession;
-  myParticipantId?: string;
-  onUpdateSession: (session: WorkshopSession) => void;
+  myParticipant?: Participant;
+  onUpdateScore: (virtueKey: VirtueKey, questionKey: 'q1' | 'q2' | 'q3' | 'q4', value: number) => void;
   onNextStep: () => void;
   onPrevStep: () => void;
 }
@@ -21,63 +21,31 @@ const SCALE_LABELS = [
 
 export const StepSelfEval: React.FC<StepSelfEvalProps> = ({
   session,
-  myParticipantId,
-  onUpdateSession,
+  myParticipant,
+  onUpdateScore,
   onNextStep,
   onPrevStep,
 }) => {
   const [activeTabVirtue, setActiveTabVirtue] = useState<VirtueKey>('prudence');
+  // Fallback to first participant if not logged in
+  const currentParticipant = myParticipant || session.participants[0];
 
-  // Default to myParticipantId if recognized, otherwise activeParticipantId or first participant
-  const targetId =
-    myParticipantId && session.participants.some((p) => p.id === myParticipantId)
-      ? (session.activeParticipantId === myParticipantId ? myParticipantId : session.activeParticipantId || myParticipantId)
-      : session.activeParticipantId || session.participants[0].id;
-
-  const currentParticipant =
-    session.participants.find((p) => p.id === targetId) || session.participants[0];
-
-  const handleSelectParticipant = (id: string) => {
-    onUpdateSession({ ...session, activeParticipantId: id });
-  };
-
-  const handleScoreChange = (virtueKey: VirtueKey, questionKey: 'q1' | 'q2' | 'q3' | 'q4', value: number) => {
-    const updatedParticipants = session.participants.map((p) => {
-      if (p.id !== currentParticipant.id) return p;
-      const currentVirtueScores = p.selfScores[virtueKey] || { q1: 3, q2: 3, q3: 3, q4: 3 };
-      return {
-        ...p,
-        selfScores: {
-          ...p.selfScores,
-          [virtueKey]: {
-            ...currentVirtueScores,
-            [questionKey]: value,
-          },
-        },
-      };
-    });
-
-    onUpdateSession({
-      ...session,
-      participants: updatedParticipants,
-    });
-  };
-
-  // Calculate totals
+  // Helper to calculate total for a virtue
   const getVirtueTotal = (scores?: SelfAnswers) => {
     if (!scores) return 0;
     return (scores.q1 || 0) + (scores.q2 || 0) + (scores.q3 || 0) + (scores.q4 || 0);
   };
 
   const virtueTotals: Record<VirtueKey, number> = {
-    prudence: getVirtueTotal(currentParticipant.selfScores.prudence),
-    temperance: getVirtueTotal(currentParticipant.selfScores.temperance),
-    fortitude: getVirtueTotal(currentParticipant.selfScores.fortitude),
-    justice: getVirtueTotal(currentParticipant.selfScores.justice),
+    prudence: getVirtueTotal(currentParticipant?.selfScores?.prudence),
+    temperance: getVirtueTotal(currentParticipant?.selfScores?.temperance),
+    fortitude: getVirtueTotal(currentParticipant?.selfScores?.fortitude),
+    justice: getVirtueTotal(currentParticipant?.selfScores?.justice),
   };
 
   const currentVirtueDef = VIRTUES_DATA[activeTabVirtue];
-  const currentAnswers = currentParticipant.selfScores[activeTabVirtue] || { q1: 3, q2: 3, q3: 3, q4: 3 };
+  const currentAnswers =
+    currentParticipant?.selfScores?.[activeTabVirtue] || { q1: 3, q2: 3, q3: 3, q4: 3 };
 
   return (
     <div className="max-w-4xl mx-auto space-y-10">
@@ -89,41 +57,58 @@ export const StepSelfEval: React.FC<StepSelfEvalProps> = ({
           <span>Introspection Personnelle</span>
         </div>
         <h2 className="text-3xl md:text-4xl font-cinzel font-bold text-stone-900 tracking-tight">
-          Le Questionnaire d'Auto-Évaluation
+          Mon Auto-Évaluation
         </h2>
         <p className="text-stone-600 font-lora text-base max-w-2xl mx-auto leading-relaxed">
-          Pour chaque affirmation, notez-vous avec franchise de 1 à 5.
-          Vos scores sur 20 sont calculés automatiquement. Gardez-les secrets pour l'instant !
+          Pour chaque affirmation, notez-vous avec lucidité de 1 à 5.
+          Vos scores sur 20 sont calculés en temps réel et restent discrets jusqu'au débriefing.
         </p>
       </div>
 
-      {/* Participant Selector (if multiple) */}
+      {/* Current User Identity Ribbon */}
       <div className="bg-white border border-stone-200/90 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-          Participant en cours d'évaluation :
+        <div className="flex items-center gap-3">
+          <span
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+            style={{ backgroundColor: currentParticipant?.avatarColor || '#B45309' }}
+          >
+            {currentParticipant?.name.charAt(0).toUpperCase() || 'M'}
+          </span>
+          <div>
+            <div className="text-xs uppercase tracking-wider font-mono text-stone-500">
+              Questionnaire personnel de
+            </div>
+            <div className="font-serif font-bold text-stone-900 text-base">
+              {currentParticipant?.name || 'Moi'}
+            </div>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {session.participants.map((p) => {
-            const isSelected = p.id === currentParticipant.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => handleSelectParticipant(p.id)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
-                  isSelected
-                    ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
-                    : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-                }`}
-              >
+
+        {/* Status of friends in room */}
+        {session.participants.length > 1 && (
+          <div className="flex items-center gap-2 text-xs text-stone-500 flex-wrap">
+            <span className="font-mono">Le cercle :</span>
+            {session.participants.map((p) => {
+              const isMe = p.id === currentParticipant?.id;
+              return (
                 <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: p.avatarColor }}
-                />
-                <span>{p.name}</span>
-              </button>
-            );
-          })}
-        </div>
+                  key={p.id}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[11px] ${
+                    isMe
+                      ? 'bg-stone-900 text-white border-stone-900 font-medium'
+                      : 'bg-stone-50 text-stone-700 border-stone-200'
+                  }`}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ backgroundColor: p.avatarColor }}
+                  />
+                  <span>{p.name}</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Summary Score Ribbon */}
@@ -220,7 +205,7 @@ export const StepSelfEval: React.FC<StepSelfEvalProps> = ({
                       <button
                         key={item.value}
                         type="button"
-                        onClick={() => handleScoreChange(activeTabVirtue, qKey, item.value)}
+                        onClick={() => onUpdateScore(activeTabVirtue, qKey, item.value)}
                         className={`py-2 px-1 sm:px-2 rounded-lg text-center transition-all border ${
                           isSelected
                             ? 'bg-stone-900 text-white border-stone-900 shadow-xs'
@@ -245,7 +230,7 @@ export const StepSelfEval: React.FC<StepSelfEvalProps> = ({
         {/* Tab switch navigation */}
         <div className="flex items-center justify-between pt-4 border-t border-stone-200">
           <div className="text-xs text-stone-500">
-            Évaluez les 4 vertus pour compléter le profil de {currentParticipant.name}.
+            Évaluez les 4 vertus pour compléter votre propre profil.
           </div>
           <div className="flex items-center gap-2">
             {(['prudence', 'temperance', 'fortitude', 'justice'] as VirtueKey[]).map((k) => (
@@ -266,7 +251,7 @@ export const StepSelfEval: React.FC<StepSelfEvalProps> = ({
         </div>
       </div>
 
-      {/* Step Navigation */}
+      {/* Step Navigation (independent for this user) */}
       <div className="flex items-center justify-between pt-4 border-t border-stone-200">
         <button
           onClick={onPrevStep}
@@ -280,7 +265,7 @@ export const StepSelfEval: React.FC<StepSelfEvalProps> = ({
           onClick={onNextStep}
           className="flex items-center gap-2 px-6 py-3 bg-stone-900 text-white font-medium text-sm rounded-lg hover:bg-stone-800 transition-colors shadow-xs"
         >
-          <span>Passer au Regard des Amis (Étape 3)</span>
+          <span>Évaluer mes Amis (Étape 3)</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

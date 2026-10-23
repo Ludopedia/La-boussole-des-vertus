@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useRealtimeSession } from './hooks/useRealtimeSession';
+import { WelcomeJoinScreen } from './components/WelcomeJoinScreen';
 import { StepSetup } from './components/StepSetup';
 import { StepCodex } from './components/StepCodex';
 import { StepSelfEval } from './components/StepSelfEval';
@@ -8,58 +9,85 @@ import { StepDebriefing } from './components/StepDebriefing';
 import { PrintKitModal } from './components/PrintKitModal';
 import { WifiShareModal } from './components/WifiShareModal';
 import { IdentitySelectorModal } from './components/IdentitySelectorModal';
-import { INITIAL_DEMO_SESSION, DEFAULT_BLANK_SESSION } from './data/virtuesData';
-import {
-  Printer,
-  Compass,
-  Sparkles,
-  RotateCcw,
-  Wifi,
-  User,
-  Users,
-} from 'lucide-react';
+import { Printer, Compass, RotateCcw, Wifi, User, LogOut } from 'lucide-react';
 
 export default function App() {
   const {
     session,
-    updateSession,
     myParticipantId,
-    chooseMyParticipantId,
+    myParticipant,
+    joinSession,
+    selectExistingParticipant,
+    updateSession,
+    updateMySelfScores,
+    updateMyPeerReview,
+    updateMyCommitment,
+    resetSession,
     isConnected,
     onlineParticipants,
     connectedClientsCount,
     networkInfo,
   } = useRealtimeSession();
 
+  // Local, independent navigation for THIS screen/client
+  const [localStep, setLocalStep] = useState<number>(0);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isWifiModalOpen, setIsWifiModalOpen] = useState(false);
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
 
   const handleStepChange = (step: number) => {
-    updateSession({
-      ...session,
-      currentStep: Math.max(0, Math.min(4, step)),
-    });
+    setLocalStep(Math.max(0, Math.min(4, step)));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
-  const handleResetToDemo = () => {
-    updateSession(JSON.parse(JSON.stringify(INITIAL_DEMO_SESSION)));
-  };
-
-  const handleResetToBlank = () => {
-    updateSession(JSON.parse(JSON.stringify(DEFAULT_BLANK_SESSION)));
-  };
-
-  const myParticipant = session.participants.find((p) => p.id === myParticipantId);
 
   const navSteps = [
     { step: 0, label: 'Le Cercle' },
     { step: 1, label: 'Le Codex' },
-    { step: 2, label: 'Auto-Évaluation' },
-    { step: 3, label: 'Grille 360°' },
+    { step: 2, label: 'Mon Auto-Éval' },
+    { step: 3, label: 'Notations 360°' },
     { step: 4, label: "L'Agora Débrief" },
   ];
+
+  // If user hasn't chosen a name/participant yet, show the initial Join Screen
+  if (!myParticipant) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-stone-900 selection:bg-amber-100 selection:text-amber-950">
+        <header className="bg-[#FAF8F5]/95 border-b border-stone-200/90 py-4 px-4 sm:px-6">
+          <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="text-lg font-cinzel font-bold text-stone-900 flex items-center gap-2">
+              <Compass className="w-5 h-5 text-amber-700" />
+              <span>La Boussole des Vertus</span>
+            </div>
+            <button
+              onClick={() => setIsWifiModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-200 bg-white hover:bg-stone-50 text-stone-700"
+            >
+              <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Wi-Fi ({connectedClientsCount} en ligne)</span>
+            </button>
+          </div>
+        </header>
+
+        <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 flex items-center justify-center">
+          <WelcomeJoinScreen
+            participants={session.participants}
+            onlineParticipants={onlineParticipants}
+            connectedClientsCount={connectedClientsCount}
+            onJoin={joinSession}
+            onSelectExisting={selectExistingParticipant}
+            onOpenWifiModal={() => setIsWifiModalOpen(true)}
+          />
+        </main>
+
+        <WifiShareModal
+          isOpen={isWifiModalOpen}
+          onClose={() => setIsWifiModalOpen(false)}
+          networkInfo={networkInfo}
+          connectedClientsCount={connectedClientsCount}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-stone-900 selection:bg-amber-100 selection:text-amber-950">
@@ -79,10 +107,10 @@ export default function App() {
             <span>La Boussole des Vertus</span>
           </a>
 
-          {/* Zone 2: 4-5 Clean Nav Links */}
+          {/* Zone 2: 4-5 Clean Nav Links (Independent navigation for this user) */}
           <nav className="hidden lg:flex items-center gap-6 text-xs uppercase tracking-wider font-medium text-stone-600">
             {navSteps.map((item) => {
-              const isActive = session.currentStep === item.step;
+              const isActive = localStep === item.step;
               return (
                 <button
                   key={item.step}
@@ -118,28 +146,19 @@ export default function App() {
               </span>
             </button>
 
-            {/* Current device profile picker */}
+            {/* Current user badge & switcher */}
             <button
               onClick={() => setIsIdentityModalOpen(true)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 transition-colors border border-stone-200"
-              title="Changer d'identité sur cet appareil"
+              title="Changer d'utilisateur sur cet écran"
             >
-              {myParticipant ? (
-                <>
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: myParticipant.avatarColor }}
-                  />
-                  <span className="max-w-[75px] truncate font-serif font-semibold">
-                    {myParticipant.name}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <User className="w-3.5 h-3.5 text-stone-500" />
-                  <span className="hidden sm:inline">Mon profil</span>
-                </>
-              )}
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: myParticipant.avatarColor }}
+              />
+              <span className="max-w-[85px] truncate font-serif font-semibold">
+                {myParticipant.name}
+              </span>
             </button>
 
             {/* Primary Action Button */}
@@ -160,7 +179,7 @@ export default function App() {
               key={item.step}
               onClick={() => handleStepChange(item.step)}
               className={`px-2.5 py-1 rounded whitespace-nowrap font-medium transition-colors ${
-                session.currentStep === item.step
+                localStep === item.step
                   ? 'bg-stone-900 text-white font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
@@ -171,9 +190,9 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Reading & Interactive Canvas */}
+      {/* Main Reading & Interactive Canvas (Local to this user) */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 md:py-12">
-        {session.currentStep === 0 && (
+        {localStep === 0 && (
           <StepSetup
             session={session}
             onUpdateSession={updateSession}
@@ -183,44 +202,46 @@ export default function App() {
           />
         )}
 
-        {session.currentStep === 1 && (
+        {localStep === 1 && (
           <StepCodex
             onNextStep={() => handleStepChange(2)}
             onPrevStep={() => handleStepChange(0)}
           />
         )}
 
-        {session.currentStep === 2 && (
+        {localStep === 2 && (
           <StepSelfEval
             session={session}
-            myParticipantId={myParticipantId}
-            onUpdateSession={updateSession}
+            myParticipant={myParticipant}
+            onUpdateScore={updateMySelfScores}
             onNextStep={() => handleStepChange(3)}
             onPrevStep={() => handleStepChange(1)}
           />
         )}
 
-        {session.currentStep === 3 && (
+        {localStep === 3 && (
           <StepPeerMatrix
             session={session}
-            myParticipantId={myParticipantId}
-            onUpdateSession={updateSession}
+            myParticipant={myParticipant}
+            onUpdatePeerReview={updateMyPeerReview}
             onNextStep={() => handleStepChange(4)}
             onPrevStep={() => handleStepChange(2)}
+            onOpenWifiModal={() => setIsWifiModalOpen(true)}
           />
         )}
 
-        {session.currentStep === 4 && (
+        {localStep === 4 && (
           <StepDebriefing
             session={session}
-            onUpdateSession={updateSession}
+            myParticipant={myParticipant}
+            onUpdateCommitment={updateMyCommitment}
             onPrevStep={() => handleStepChange(3)}
             onOpenPrintModal={() => setIsPrintModalOpen(true)}
           />
         )}
       </main>
 
-      {/* Editorial Footer */}
+      {/* Editorial Footer (No demo buttons) */}
       <footer className="no-print border-t border-stone-200 bg-stone-100/60 py-8 px-4 sm:px-6 text-xs text-stone-500">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -228,7 +249,7 @@ export default function App() {
               La Boussole des Vertus
             </span>
             <span aria-hidden="true">·</span>
-            <span>Atelier philosophique synchronisé en temps réel</span>
+            <span>Atelier philosophique collaboratif en direct</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -237,23 +258,19 @@ export default function App() {
               className="hover:text-stone-800 transition-colors flex items-center gap-1 text-emerald-800 font-medium"
             >
               <Wifi className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Partager sur Wi-Fi</span>
+              <span>Inviter sur le Wi-Fi</span>
             </button>
             <span aria-hidden="true">·</span>
             <button
-              onClick={handleResetToDemo}
-              className="hover:text-stone-800 transition-colors flex items-center gap-1"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-              <span>Exemple de démo</span>
-            </button>
-            <span aria-hidden="true">·</span>
-            <button
-              onClick={handleResetToBlank}
-              className="hover:text-stone-800 transition-colors flex items-center gap-1"
+              onClick={() => {
+                if (window.confirm("Êtes-vous sûr de vouloir réinitialiser l'atelier pour un nouveau groupe ?")) {
+                  resetSession();
+                }
+              }}
+              className="hover:text-red-700 transition-colors flex items-center gap-1 text-stone-500"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Session vierge</span>
+              <span>Nouvel atelier vierge</span>
             </button>
           </div>
         </div>
@@ -273,7 +290,7 @@ export default function App() {
         onClose={() => setIsIdentityModalOpen(false)}
         participants={session.participants}
         myParticipantId={myParticipantId}
-        onSelectParticipant={chooseMyParticipantId}
+        onSelectParticipant={selectExistingParticipant}
       />
 
       {/* Modal for Ready-to-Print Kit */}
